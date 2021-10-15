@@ -1,0 +1,4 @@
+[defaults]
+#uuid = 00000000-000000000000000F
+#output_dir = ~/ios-backups
+#backup_dir = ~/ios-backups
