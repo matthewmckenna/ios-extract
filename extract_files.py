@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""utility to extract specific files from an unencrypted iOS backup"""
+"""Extract specific files from an unencrypted iOS backup"""
 import argparse
 import configparser
 from datetime import datetime
@@ -18,31 +18,36 @@ def load_config(filename: str):
     """Load default settings from a configuration file."""
     cfg = configparser.ConfigParser()
     cfg.read(filename)
-    return cfg['defaults']
+    return cfg["defaults"]
+
+
+def get_platform_backup_location() -> Path:
+    """Return the platform-specific iOS backup location"""
+    if sys.platform == "win32":
+        return Path("~/AppData/Roaming/Apple Computer/MobileSync/Backup")
+    elif sys.platform == "darwin":
+        return Path("~/Library/Application Support/MobileSync/Backup")
 
 
 def main(args):
-    """main entry point for the script"""
-    # backups are stored in different locations on windows and macos
+    """Main entry point for the utility"""
+    # backups are stored in different locations on Windows and macOS
     # set the correct location for the platform
-    if sys.platform == 'win32':
-        platform_backup_loc = '~/AppData/Roaming/Apple Computer/MobileSync/Backup'
-    elif sys.platform == 'darwin':
-        platform_backup_loc = '~/Library/Application Support/MobileSync/Backup'
+    platform_backup_location = get_platform_backup_location()
 
     # load user configuration settings
-    cfg = load_config('ios.config')
+    cfg = load_config("ios.config")
 
     # TODO: check for the valid cfg_keys
-    device_uuid = cfg.get('uuid')
+    device_uuid = cfg.get("uuid")
 
     # try to get backup_dir from the config file
     # use the default platform location otherwise
     # TODO: can I clean up the creation of `backup_directory`?
-    if not cfg.get('backup_dir'):
+    if not cfg.get("backup_dir"):
         backup_dir = platform_backup_loc
     else:
-        backup_dir = cfg.get('backup_dir')
+        backup_dir = cfg.get("backup_dir")
     # create a Path object and expand the `~` if any
     backup_dir = Path(backup_dir).expanduser()
 
@@ -61,7 +66,7 @@ def main(args):
     backup_info = get_backup_information(backup_directory)
 
     # get the output directory from the config file, or command-line args
-    cfg_output = cfg.get('output_dir')
+    cfg_output = cfg.get("output_dir")
 
     # set a flag if either are set
     # TODO: this isn't a flag?
@@ -78,7 +83,7 @@ def main(args):
 
         base_output_dir = Path(base_output_dir).expanduser()
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # TODO: too many output directory variables - sort this out
         output_dir = base_output_dir / timestamp
@@ -87,7 +92,7 @@ def main(args):
         output_dir.mkdir(parents=True)
 
         # tidy up empty directories here
-        remove_empty_dirs(base_output_dir, pattern=r'^\d{8}_\d{6}$')
+        remove_empty_dirs(base_output_dir, pattern=r"^\d{8}_\d{6}$")
 
         if args.copy:
             # write some information about the source of the backup
@@ -96,9 +101,9 @@ def main(args):
             # read_ios_below_10
             # NOTE: if iOS version < 10 then there are no folders, and
             # all files are at the top level.
-            ios_version = int(backup_info['Product Version'].split('.')[0])
+            ios_version = int(backup_info["Product Version"].split(".")[0])
 
-            databases = load_json('databases.json')
+            databases = load_json("databases.json")
             # TODO: read from `database.json`
             for db_name, hashed_name in databases.items():
 
@@ -127,7 +132,7 @@ def main(args):
 
 def load_json(filepath: Union[str, Path]) -> Dict[str, str]:
     """helper utility to load a json file"""
-    with open(filepath, 'rt') as f:
+    with open(filepath, "rt") as f:
         data = json.load(f)
     return data
 
@@ -146,7 +151,7 @@ def choose_backup_directory(backup_dir: Path) -> Path:
             f"1--{max_choice}, or 'x' to exit:\n"
         )
 
-        if choice.lower() == 'x':
+        if choice.lower() == "x":
             # TODO: is there a cleaner way to exit the script?
             sys.exit()
 
@@ -160,7 +165,7 @@ def choose_backup_directory(backup_dir: Path) -> Path:
             choice = -1
 
         if 1 <= choice <= max_choice:
-            print(f'\nyou have chosen backup directory #{choice} ({choices[choice]})\n')
+            print(f"\nyou have chosen backup directory #{choice} ({choices[choice]})\n")
             break
         else:
             # if the number is outside of the valid range
@@ -171,7 +176,7 @@ def choose_backup_directory(backup_dir: Path) -> Path:
 
         # TODO: check if this is the most graceful way to exit
         if invalid_inputs >= 3:
-            print('Too many invalid inputs. Exiting.')
+            print("Too many invalid inputs. Exiting.")
             sys.exit(1)
 
     return choices[choice]
@@ -193,7 +198,7 @@ def get_backup_choices(directory: Path) -> Dict[int, Path]:
                     # no Info.plist file found
                     pass
                 else:
-                    print(f'{counter}: {entry.name}')
+                    print(f"{counter}: {entry.name}")
                     choices[counter] = Path(entry.name)
                     counter += 1
 
@@ -202,20 +207,20 @@ def get_backup_choices(directory: Path) -> Dict[int, Path]:
 
 def get_summary_backup_info(directory: Path):
     """print a summary of the backup directory"""
-    plist_filename = directory / 'Info.plist'
+    plist_filename = directory / "Info.plist"
 
     # read the plist file
-    with open(plist_filename, 'rb') as f:
+    with open(plist_filename, "rb") as f:
         pl = plistlib.load(f)
 
     # basic information to display
     keys = [
-        'Device Name',
-        'Last Backup Date',
-        'Product Type',  # iPhone8,1
-        'Product Name',  # iPhone XR
-        'Product Version',  # iOS version
-        'Unique Identifier',
+        "Device Name",
+        "Last Backup Date",
+        "Product Type",  # iPhone8,1
+        "Product Name",  # iPhone XR
+        "Product Version",  # iOS version
+        "Unique Identifier",
     ]
 
     # create a dict with a reduced set of plist entries
@@ -227,31 +232,31 @@ def get_summary_backup_info(directory: Path):
 
 def get_backup_information(directory: Path) -> Dict[str, str]:
     """retrieve backup information from `Info.plist` file"""
-    plist_filename = directory / 'Info.plist'
+    plist_filename = directory / "Info.plist"
 
-    with open(plist_filename, 'rb') as f:
+    with open(plist_filename, "rb") as f:
         pl = plistlib.load(f)
 
     # use a list rather than a set to preserve order
     keys = [
-        'Build Version',  # 19A346
-        'Device Name',
-        'Display Name',
-        'GUID',
-        'ICCID',
-        'IMEI',
-        'IMEI 2',
+        "Build Version",  # 19A346
+        "Device Name",
+        "Display Name",
+        "GUID",
+        "ICCID",
+        "IMEI",
+        "IMEI 2",
         # this value is in UTC, but does not specify that when written to file
         # TODO: modify this entry to specify UTC in the output `info.txt`
-        'Last Backup Date',
-        'MEID',
-        'Phone Number',
-        'Product Name',  # iPhone XR
-        'Product Type',  # iPhone11,8
-        'Product Version',  # iOS version
-        'Serial Number',
-        'Target Identifier',
-        'Unique Identifier',  # uuid
+        "Last Backup Date",
+        "MEID",
+        "Phone Number",
+        "Product Name",  # iPhone XR
+        "Product Type",  # iPhone11,8
+        "Product Version",  # iOS version
+        "Serial Number",
+        "Target Identifier",
+        "Unique Identifier",  # uuid
     ]
 
     # use `.get` in case the key doesn't exist in `pl`
@@ -260,17 +265,17 @@ def get_backup_information(directory: Path) -> Dict[str, str]:
 
 def write_backup_information(backup_info: Dict[str, str], directory: Path) -> None:
     """write backup information to a file"""
-    filename = directory / 'info.txt'
+    filename = directory / "info.txt"
 
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         for k in backup_info:
-            f.write(f'{k}: {backup_info[k]}\n')
+            f.write(f"{k}: {backup_info[k]}\n")
 
 
 def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
     """yield matching directory names in `directory`"""
     # compile the directory name pattern
-    dirname_pattern = re.compile(f'{pattern}')
+    dirname_pattern = re.compile(f"{pattern}")
 
     with os.scandir(directory) as it:
         for entry in it:
@@ -285,7 +290,7 @@ def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str
 def remove_empty_dirs(directory: Path, pattern: str) -> None:
     """remove empty directories within `directory` which match the regex `pattern`"""
     for d in get_empty_dirs(directory, pattern):
-        print(f'DRY RUN: remove directory={d.name}')
+        print(f"DRY RUN: remove directory={d.name}")
         # os.rmdir(d.path)
 
 
@@ -313,18 +318,27 @@ def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
                 yield dir_entry
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='extract specific files from an unencrypted iOS backup',
+        description="Extract specific files from an unencrypted iOS backup",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument('-o', '--output', help='output directory')
-    parser.add_argument('-c', '--copy', help='copy the database files', action='store_true')
     parser.add_argument(
-        '-s',
-        '--summarise',
-        help='summarise all backup directorys in given path',
-        action='store_true',
+        "-o",
+        "--output",
+        default=Path.home() / "ios-backups",
+        help="output directory",
+        type=Path,
+    )
+    # TODO: change to copy files by default, add dry-run flag instead
+    parser.add_argument(
+        "-c", "--copy", help="copy the database files", action="store_true"
+    )
+    parser.add_argument(
+        "-s",
+        "--summarise",
+        help="summarise all backup directorys in given path",
+        action="store_true",
     )
 
     args = parser.parse_args()
