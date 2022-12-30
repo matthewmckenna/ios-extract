@@ -23,35 +23,34 @@ def load_config(filename: str):
 
 def main(args):
     """main entry point for the script"""
-    # load user configuration settings
-    cfg = load_config('ios.config')
-
-    # if we have specified a uuid then we don't want to summarise
-    try:
-        device_uuid = cfg['uuid']
-    except KeyError:
-        device_uuid = None
-
     # backups are stored in different locations on windows and macos
+    # set the correct location for the platform
     if sys.platform == 'win32':
         platform_backup_loc = '~/AppData/Roaming/Apple Computer/MobileSync/Backup'
     elif sys.platform == 'darwin':
         platform_backup_loc = '~/Library/Application Support/MobileSync/Backup'
 
-    backup_dir = Path(platform_backup_loc).expanduser()
+    # load user configuration settings
+    cfg = load_config('ios.config')
 
-    # TODO: why check if `device_uuid` is None here?
-    # TODO: should we `.expanduser()` after getting the backup_dir
-    # TODO: `backup_dir` must be a Path object
-    if device_uuid is None:
-        try:
-            backup_dir = Path(cfg['backup_dir'])
-        except KeyError:
-            # no backup dir specified in the configuration file, so use
-            # the platform locations
-            pass
+    # TODO: check for the valid cfg_keys
+    device_uuid = cfg.get('uuid')
 
+    # try to get backup_dir from the config file
+    # use the default platform location otherwise
     # TODO: can I clean up the creation of `backup_directory`?
+    if not cfg.get('backup_dir'):
+        backup_dir = platform_backup_loc
+    else:
+        backup_dir = cfg.get('backup_dir')
+    # create a Path object and expand the `~` if any
+    backup_dir = Path(backup_dir).expanduser()
+
+    # two modes of operation here
+    # 1. we specify a backup_directory in the config file
+    # 2. we use the system location
+
+    # TODO: this is bad logic. fix this next
     if args.summarise:
         directory_choice = choose_backup_directory(backup_dir)
         backup_directory = backup_dir / directory_choice
@@ -242,6 +241,8 @@ def get_backup_information(directory: Path) -> Dict[str, str]:
         'ICCID',
         'IMEI',
         'IMEI 2',
+        # this value is in UTC, but does not specify that when written to file
+        # TODO: modify this entry to specify UTC in the output `info.txt`
         'Last Backup Date',
         'MEID',
         'Phone Number',
