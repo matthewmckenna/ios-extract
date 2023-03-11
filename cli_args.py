@@ -9,6 +9,7 @@ class CommandLineArguments:
     dry_run: bool
     summarise: bool
     output_directory: Path | None = None
+    write_info_txt: bool = False
 
     def __post_init__(self):
         # set a default directory to store ios-backups
@@ -48,9 +49,16 @@ def parse_args() -> CommandLineArguments:
         help="summarise all backup directorys in given path",
         action="store_true",
     )
+    parser.add_argument(
+        "-w",
+        "--write-info-txt",
+        help="write an info.txt file in the output directory",
+        action="store_true",
+    )
     args = parser.parse_args()
     return CommandLineArguments(
         dry_run=args.dry_run,
         summarise=args.summarise,
         output_directory=args.output_directory,
+        write_info_txt=args.write_info_txt,
     )

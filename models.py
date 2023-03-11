@@ -1,11 +1,12 @@
 from __future__ import annotations
 from datetime import datetime
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 import json
 from pathlib import Path
 
 from dates_and_times import _datetime_to_str, _str_to_datetime
 
+DIRECTORY_FIELDS = ["backup_directory", "output_directory"]
 FIELD_MAPPING = {
     "backup_directory": "Backup Directory",
     "build_version": "Build Version",
@@ -17,6 +18,7 @@ FIELD_MAPPING = {
     "imei_2": "IMEI 2",
     "last_backup_date": "Last Backup Date",
     "meid": "MEID",
+    "output_directory": "Output Directory",
     "phone_number": "Phone Number",
     "product_name": "Product Name",
     "product_type": "Product Type",
@@ -48,6 +50,7 @@ class BackupInfo:
     imei_2: str
     last_backup_date: str | datetime
     meid: str | None
+    output_directory: str | Path
     phone_number: str
     product_name: str
     product_type: str
@@ -63,7 +66,6 @@ class BackupInfo:
             self.backup_directory = Path(self.backup_directory)
 
     def extract_info_mapping(self, data):
-        print(data)
         return {FIELD_MAPPING.get(k): v for k, v in data}
 
     def to_dict(self):
@@ -73,13 +75,25 @@ class BackupInfo:
                 self.last_backup_date, json_encoder=CustomJSONEncoder
             ),
             "Backup Directory": str(self.backup_directory),
+            "Output Directory": str(self.output_directory),
         }
 
     @classmethod
     def from_dict(cls, d):
         inverse_mapping = {v: k for k, v in FIELD_MAPPING.items()}
-        return cls(**{inverse_mapping[k]: v for k, v in d.items()})
+        return cls(
+            **{
+                inverse_mapping[k] if k not in DIRECTORY_FIELDS else k: v
+                for k, v in d.items()
+            }
+        )
 
     @property
     def major_ios_version(self) -> int:
         return int(self.product_version.split(".")[0])
+
+    def write_info_txt(self):
+        info_txt_filepath = self.output_directory / "info.txt"
+        info_txt_filepath.write_text(
+            "\n".join(f"{k}: {v}" for k, v in self.to_dict().items())
+        )

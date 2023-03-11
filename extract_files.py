@@ -148,7 +148,11 @@ def get_backup_info(
     plist_backup_info = read_information_from_info_plist(target_backup_directory)
     output_directory = get_output_directory(args, cfg)
     return BackupInfo.from_dict(
-        dict(output_directory=output_directory, **plist_backup_info)
+        dict(
+            backup_directory=target_backup_directory,
+            output_directory=output_directory,
+            **plist_backup_info,
+        )
     )
 
 
@@ -183,20 +187,20 @@ def main(args: CommandLineArguments):
         return
 
     backup_info = get_backup_info(backup_location, args, cfg)
-    print(backup_info)
+    if args.write_info_txt:
+        # write some information about the source of the backup
+        backup_info.write_info_txt()
 
-    # TODO: move / remove as we continue the refactor
     sys.exit(99)
+    # TODO: move this to the end of the execution
     remove_empty_dirs(base_output_dir, pattern=r"^\d{8}_\d{6}$")
-    # write some information about the source of the backup
-    write_backup_information(backup_info, output_dir)
-    # NOTE: if iOS version < 10 then there are no folders, and
-    # all files are at the top level.
 
 
 def locate_files_ios_gte_10(
     backup_directory: Path, output_directory: Path, hashed_name: str, db_name: str
 ) -> Path:
+    # NOTE: if iOS version < 10 then there are no folders, and
+    # all files are at the top level.
     subdirectory_name = hashed_name[:2]
     source = backup_directory / hashed_name[:2] / hashed_name
     destination = output_directory / db_name
@@ -294,30 +298,6 @@ def exit_with_exit_code_and_message(exit_code: int, msg: str):
     sys.exit(exit_code)
 
 
-def get_backup_directories(directory: Path) -> Dict[int, Path]:
-    """Get available backup directories within `directory`"""
-    # TODO: we can probably use a list here -- no point using a dict with integer keys
-    choices: Dict[int, str] = {}
-    counter = 1
-
-    with os.scandir(directory) as it:
-        for entry in it:
-            # only interested in directories
-            if entry.is_dir():
-                try:
-                    choice = get_choice(directory / entry.name)
-                # TODO: am I handling this correctly?
-                except FileNotFoundError:
-                    # no Info.plist file found
-                    pass
-                else:
-                    print(f"{counter}: {entry.name}")
-                    choices[counter] = Path(entry.name)
-                    counter += 1
-
-    return choices
-
-
 def load_info_plist_from_directory(directory: Path) -> Dict[str, str]:
     """Load an `Info.plist` file"""
     plist_filename = directory / "Info.plist"
@@ -385,15 +365,6 @@ def read_information_from_info_plist(directory: Path) -> Dict[str, str]:
     return {k: pl.get(k) for k in keys}
 
 
-def write_backup_information(backup_info: Dict[str, str], directory: Path) -> None:
-    """Write backup information to a text file."""
-    filename = directory / "info.txt"
-
-    with open(filename, "wt") as f:
-        for k in backup_info:
-            f.write(f"{k}: {backup_info[k]}\n")
-
-
 def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
     """Yield matching directory names in `directory`"""
     # compile the directory name pattern as we"ll be using it multiple times
@@ -443,4 +414,5 @@ def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
 
 if __name__ == "__main__":
     args = parse_args()
+    print(args)
     main(args)
