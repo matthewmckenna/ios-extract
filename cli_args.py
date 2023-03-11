@@ -36,7 +36,7 @@ def parse_args() -> CommandLineArguments:
     parser.add_argument(
         "-o",
         "--output-directory",
-        help="output directory",
+        help="output directory to extract the files to",
         type=Path,
     )
     parser.add_argument(

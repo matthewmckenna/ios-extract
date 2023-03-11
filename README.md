@@ -11,15 +11,15 @@ Utility to extract specific files from an unencrypted iOS backup.
 
 ```zsh
 ❯ python extract_files.py --help
-usage: extract_files.py [-h] [-o OUTPUT] [-c] [-s]
+usage: extract_files.py [-h] [-o OUTPUT_DIRECTORY] [-n] [-s]
 
-extract specific files from an unencrypted iOS backup
+Extract specific files from an unencrypted iOS backup
 
 options:
   -h, --help            show this help message and exit
-  -o OUTPUT, --output OUTPUT
-                        output directory (default: None)
-  -c, --copy            copy the database files (default: False)
+  -o OUTPUT_DIRECTORY, --output-directory OUTPUT_DIRECTORY
+                        output directory to extract the files to (default: None)
+  -n, --dry-run         dry run & do not copy files (default: False)
   -s, --summarise       summarise all backup directorys in given path (default: False)
 ```
 
@@ -28,5 +28,5 @@ options:
 - Creates a backup in the default backup directory (`~/ios-backups/%YYYYmmdd_HHMMSS%`)
 
 ```zsh
-python extract_files.py --copy
+python extract_files.py
 ```
