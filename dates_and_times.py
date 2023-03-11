@@ -2,13 +2,6 @@ from datetime import datetime, timezone
 import json
 
 
-class DatetimeJSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.strftime("%Y-%m-%d %H:%M:%S")
-        return super().default(obj)
-
-
 def _datetime_to_str(dt: datetime, json_encoder: json.JSONEncoder) -> str:
     return json.dumps(dt, cls=json_encoder).strip('"')
 
@@ -24,3 +17,11 @@ def _datetime_to_ddmmmyyyy(dt: datetime) -> str:
     The timezone field of the datetime object is set to UTC.
     """
     return dt.astimezone(tz=timezone.utc).strftime("%d-%b-%Y %H:%M:%S")
+
+
+def _isoformat_now(tz: timezone = timezone.utc):
+    return datetime.now(tz=tz).isoformat()
+
+
+def _get_ymd_hms_timestamp(tz: timezone = timezone.utc):
+    return datetime.now(tz=tz).strftime("%Y%m%d_%H%M%S")

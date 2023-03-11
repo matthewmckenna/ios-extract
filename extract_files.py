@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Extract specific files from an unencrypted iOS backup"""
 import configparser
-from datetime import datetime
 import json
 import os
 import re
@@ -12,7 +11,8 @@ import sys
 from typing import Dict, Iterable, Iterator, Union
 
 from cli_args import CommandLineArguments, parse_args
-from dates_and_times import _datetime_to_ddmmmyyyy
+from dates_and_times import _datetime_to_ddmmmyyyy, _get_ymd_hms_timestamp
+from models import BackupInfo
 
 
 def scantree(path: Path) -> Iterator[os.DirEntry[str]]:
@@ -31,11 +31,11 @@ def _get_directory_names(directory: Path) -> Iterator[str]:
             yield entry.name
 
 
-def load_config(filename: str):
+def load_config(filename: str) -> Dict[str, str]:
     """Load default settings from a configuration file."""
-    cfg = configparser.ConfigParser()
+    cfg = configparser.ConfigParser()  # configparser.ConfigParser
     cfg.read(filename)
-    return cfg["defaults"]
+    return dict(cfg["defaults"])  # configparser.SectionProxy
 
 
 def get_platform_backup_location() -> Path:
@@ -72,6 +72,17 @@ def get_backup_directory_interactive(backup_location: Path) -> Path:
 
 
 def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Path]:
+    """Return a mapping from choice number to a path to the backup directory.
+
+    Returns
+    -------
+    dict mapping from user input choice number to the path to the backup directory
+    e.g,
+    {
+        1: PosixPath("/Users/user/Library/Application Support/MobileSync/Backup/46063E61-DC9F-40A2-888A-880FD5BA596A"),
+        2: PosixPath("/Users/user/Library/Application Support/MobileSync/Backup/8A8269F1-BFC9-4828-9831-9A1ECD484F8C")
+    }
+    """
     return {
         idx: base_backup_directory / directory_name
         for idx, directory_name in enumerate(
@@ -90,12 +101,68 @@ def summarise_platform_backup_directories(backup_location: Path):
 
 
 def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -> Path:
-    # we can configure a UUID in the config file to select a backup directory or
-    # we can interactively pick one
+    """Get the target backup directory to extract database files from.
+
+    Check the config file for a UUID set there.
+    If no UUID is set in the config, then list available backups
+    and interactively prompt user to select a directory.
+
+    Parameters
+    ----------
+    backup_location: the location of the iOS backups
+    config: dict containing key-value pairs from the configuration file
+
+    Returns
+    -------
+    a Path instance to the target backup directory
+    """
     device_uuid = config.get("uuid")
     if device_uuid is None:
         return get_backup_directory_interactive(backup_location)
     return backup_location / device_uuid
+
+
+def ensure_path(path: Path | str) -> Path:
+    if isinstance(path, str):
+        path = Path(path)
+    path.mkdir(exist_ok=True, parents=True)
+    return path
+
+
+def get_backup_info(
+    backup_location: Path, args: CommandLineArguments, cfg
+) -> BackupInfo:
+    """Get a BackupInfo instance with information about the selected backup.
+
+    Parameters
+    -----------
+    backup_location: location of the iOS backups
+    base_output_directory: base output directory
+    config: dict with configuration parameters
+
+    Returns
+    -------
+    BackupInfo instance
+    """
+    target_backup_directory = get_target_backup_directory(backup_location, cfg)
+    plist_backup_info = read_information_from_info_plist(target_backup_directory)
+    output_directory = get_output_directory(args, cfg)
+    return BackupInfo.from_dict(
+        dict(output_directory=output_directory, **plist_backup_info)
+    )
+
+
+def get_output_directory(args: CommandLineArguments, cfg: Dict[str, str]) -> Path:
+    """Return the output directory for the current extraction.
+
+    Command line arguments take preference over the config file.
+    A new output directory with the current timestamp in the format YYYYMMDD_HHMMSS
+    is created for the current extraction.
+    """
+    return ensure_path(
+        (args.output_directory or cfg.get("output_directory"))
+        / _get_ymd_hms_timestamp()
+    )
 
 
 def main(args: CommandLineArguments):
@@ -115,73 +182,55 @@ def main(args: CommandLineArguments):
         summarise_platform_backup_directories(backup_location)
         return
 
-    target_backup_directory = get_target_backup_directory(backup_location, cfg)
-
-    # get a dict with information from `Info.plist`
-    backup_info = read_information_from_info_plist(target_backup_directory)
-
-    # get the output directory from the config file, or command-line args
-    output_directory = args.output_directory or cfg.get("output_directory")
+    backup_info = get_backup_info(backup_location, args, cfg)
+    print(backup_info)
 
     # TODO: move / remove as we continue the refactor
     sys.exit(99)
+    remove_empty_dirs(base_output_dir, pattern=r"^\d{8}_\d{6}$")
+    # write some information about the source of the backup
+    write_backup_information(backup_info, output_dir)
+    # NOTE: if iOS version < 10 then there are no folders, and
+    # all files are at the top level.
 
-    # if there is no output directory set, then application will exit
-    # after printing out information above
-    if output:
-        # command line args takes precedence
-        if args.output:
-            base_output_dir = args.output
+
+def locate_files_ios_gte_10(
+    backup_directory: Path, output_directory: Path, hashed_name: str, db_name: str
+) -> Path:
+    subdirectory_name = hashed_name[:2]
+    source = backup_directory / hashed_name[:2] / hashed_name
+    destination = output_directory / db_name
+    return source, destination
+
+
+def copy_files_of_interets(backup_info: BackupInfo):
+    """Copy files to a backup directory"""
+    databases = load_json("databases.json")
+
+    # def locate_files_ios_gte_10()  # handle iOS >= 10.0
+    # def locate_files_ios_lte_9()  # handle iOS <= 9.0
+    for db_name, hashed_name in databases.items():
+        if backup_info.major_ios_version > 9:
+            # databases are organised in directories by
+            # the first byte (two characters) of the database
+            # e.g., database `7c7fba66680ef796b916b067077cc246adacf01d`
+            # is inside a directory named `7c`
+            subdir = hashed_name[:2]
+
+            # `backup_directory` is where we will copy from (source)
+            # `output_dir` is where we will copy to (destination)
+            folder = backup_directory / subdir
+            src_path = folder / hashed_name
+            dest_path = output_dir / db_name
         else:
-            base_output_dir = cfg_output
+            src_path = backup_directory / hashed_name
+            dest_path = output_dir / db_name
 
-        base_output_dir = Path(base_output_dir).expanduser()
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # TODO: too many output directory variables - sort this out
-        output_dir = base_output_dir / timestamp
-
-        # create the output directory if it doesn't exist
-        output_dir.mkdir(parents=True)
-
-        # tidy up empty directories here
-        remove_empty_dirs(base_output_dir, pattern=r"^\d{8}_\d{6}$")
-
-        if args.copy:
-            # write some information about the source of the backup
-            write_backup_information(backup_info, output_dir)
-
-            # read_ios_below_10
-            # NOTE: if iOS version < 10 then there are no folders, and
-            # all files are at the top level.
-            ios_version = int(backup_info["Product Version"].split(".")[0])
-
-            databases = load_json("databases.json")
-            # TODO: read from `database.json`
-            for db_name, hashed_name in databases.items():
-
-                if ios_version > 9:
-                    # databases are organised in directories by
-                    # the first byte (two characters) of the database
-                    # e.g., database `7c7fba66680ef796b916b067077cc246adacf01d`
-                    # is inside a directory named `7c`
-                    subdir = hashed_name[:2]
-
-                    # `backup_directory` is where we will copy from (source)
-                    # `output_dir` is where we will copy to (destination)
-                    folder = backup_directory / subdir
-                    src_path = folder / hashed_name
-                    dest_path = output_dir / db_name
-                else:
-                    src_path = backup_directory / hashed_name
-                    dest_path = output_dir / db_name
-
-                try:
-                    shutil.copy2(src_path, dest_path)
-                except FileNotFoundError:
-                    # the file doesn't exist
-                    pass
+        try:
+            shutil.copy2(src_path, dest_path)
+        except FileNotFoundError:
+            # the file doesn't exist
+            pass
 
 
 def load_json(filepath: Union[str, Path]) -> Dict[str, str]:

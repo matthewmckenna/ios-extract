@@ -2,13 +2,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from dates_and_times import _datetime_to_str, _str_to_datetime, DatetimeJSONEncoder
-from models import ExtractInfo
+from dates_and_times import _datetime_to_str, _str_to_datetime
+from models import BackupInfo, CustomJSONEncoder
 
 
 @pytest.fixture
 def extract_info_dict():
     return {
+        "Backup Directory": "backup-directory",
         "Build Version": "20D47",
         "Device Name": "device-name",
         "Display Name": "display-name",
@@ -30,7 +31,8 @@ def extract_info_dict():
 
 @pytest.fixture
 def extract_info():
-    return ExtractInfo(
+    return BackupInfo(
+        backup_directory="backup-directory",
         build_version="20D47",
         device_name="device-name",
         display_name="display-name",
@@ -55,14 +57,12 @@ def test_extract_info_to_dict(extract_info, extract_info_dict):
 
 
 def test_extract_info_from_dict(extract_info, extract_info_dict):
-    assert ExtractInfo.from_dict(extract_info_dict) == extract_info
+    assert BackupInfo.from_dict(extract_info_dict) == extract_info
 
 
 def test_datetime_to_str():
     dt = datetime(2022, 3, 11, 1, 47, 3, tzinfo=timezone.utc)
-    assert (
-        _datetime_to_str(dt, json_encoder=DatetimeJSONEncoder) == "2022-03-11 01:47:03"
-    )
+    assert _datetime_to_str(dt, json_encoder=CustomJSONEncoder) == "2022-03-11 01:47:03"
 
 
 def test_str_to_datetime():
