@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Extract specific files from an unencrypted iOS backup"""
-import argparse
 import configparser
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import os
 import re
 import shutil
 from pathlib import Path
 import plistlib
-from pprint import pprint
 import sys
 from typing import Dict, Iterable, Iterator, Union
 
 from cli_args import CommandLineArguments, parse_args
+from dates_and_times import _datetime_to_ddmmmyyyy
 
 
 def scantree(path: Path) -> Iterator[os.DirEntry[str]]:
@@ -83,11 +82,12 @@ def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Pa
 
 def summarise_platform_backup_directories(backup_location: Path):
     backup_directories = _build_backup_directory_options(backup_location)
-    print(f"{' Backups Available ':=^69}")
+    num_header_characters = 69
+    print(f"{' Backups Available ':=^{num_header_characters}}")
     for choice, backup_directory in backup_directories.items():
         get_backup_directory_info(backup_directory, choice)
-    print(f"{'':=^69}")
-    
+    print(f"{'':=^{num_header_characters}}")
+
 
 def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -> Path:
     # we can configure a UUID in the config file to select a backup directory or
@@ -116,17 +116,15 @@ def main(args: CommandLineArguments):
         return
 
     target_backup_directory = get_target_backup_directory(backup_location, cfg)
-    sys.exit(99)
 
     # get a dict with information from `Info.plist`
-    backup_info = read_information_from_info_plist(backup_location)
+    backup_info = read_information_from_info_plist(target_backup_directory)
 
     # get the output directory from the config file, or command-line args
-    cfg_output = cfg.get("output_dir")
+    output_directory = args.output_directory or cfg.get("output_directory")
 
-    # set a flag if either are set
-    # TODO: this isn't a flag?
-    output = args.output or cfg_output
+    # TODO: move / remove as we continue the refactor
+    sys.exit(99)
 
     # if there is no output directory set, then application will exit
     # after printing out information above
@@ -304,7 +302,7 @@ def get_backup_directory_info(directory: Path, choice: int) -> None:
     last_backup_date = pl["Last Backup Date"]
 
     print(f"{choice}: {device_name} [{product_name}] (iOS version: {product_version})")
-    print(f" - Last backed up: {last_backup_date.astimezone(tz=timezone.utc)}")
+    print(f" - Last backed up: {_datetime_to_ddmmmyyyy(last_backup_date)}")
     print()
 
 
