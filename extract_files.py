@@ -25,6 +25,13 @@ def scantree(path: Path) -> Iterator[os.DirEntry[str]]:
             yield entry
 
 
+def _get_directory_names(directory: Path) -> Iterator[str]:
+    """Yield directory names within `directory`"""
+    for entry in os.scandir(directory):
+        if entry.is_dir():
+            yield entry.name
+
+
 def load_config(filename: str):
     """Load default settings from a configuration file."""
     cfg = configparser.ConfigParser()
@@ -59,15 +66,36 @@ def get_backup_location(config: Dict[str, str]) -> Path:
 
 
 def get_backup_directory_interactive(backup_location: Path) -> Path:
-    directory_choice = choose_backup_directory(backup_location)
-    return backup_location / directory_choice
+    """Choose a directory to extract files from."""
+    choices = _build_backup_directory_options(backup_location)
+    summarise_platform_backup_directories(backup_location)
+    return get_user_backup_directory_selection(choices)
+
+
+def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Path]:
+    return {
+        idx: base_backup_directory / directory_name
+        for idx, directory_name in enumerate(
+            _get_directory_names(base_backup_directory), start=1
+        )
+    }
 
 
 def summarise_platform_backup_directories(backup_location: Path):
-    for entry in os.scandir(backup_location):
-        if entry.is_dir():
-            get_backup_directory_info(Path(entry.path))
+    backup_directories = _build_backup_directory_options(backup_location)
+    print(f"{' Backups Available ':=^69}")
+    for choice, backup_directory in backup_directories.items():
+        get_backup_directory_info(backup_directory, choice)
+    print(f"{'':=^69}")
+    
 
+def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -> Path:
+    # we can configure a UUID in the config file to select a backup directory or
+    # we can interactively pick one
+    device_uuid = config.get("uuid")
+    if device_uuid is None:
+        return get_backup_directory_interactive(backup_location)
+    return backup_location / device_uuid
 
 
 def main(args: CommandLineArguments):
@@ -78,20 +106,20 @@ def main(args: CommandLineArguments):
     # get the location of the iOS backups
     backup_location = get_backup_location(cfg)
 
-    # TODO: check for the valid cfg_keys
-    device_uuid = cfg.get("uuid")
-
     # two modes of operation here
     # 1. we specify a backup_directory in the config file
     # 2. we use the system location
 
+    # TODO: this could be extracted as a sub-command
     if args.summarise:
         summarise_platform_backup_directories(backup_location)
         return
 
-    sys.exit(1)
+    target_backup_directory = get_target_backup_directory(backup_location, cfg)
+    sys.exit(99)
+
     # get a dict with information from `Info.plist`
-    backup_info = get_backup_information(backup_directory)
+    backup_info = read_information_from_info_plist(backup_location)
 
     # get the output directory from the config file, or command-line args
     cfg_output = cfg.get("output_dir")
@@ -165,14 +193,11 @@ def load_json(filepath: Union[str, Path]) -> Dict[str, str]:
     return data
 
 
-def choose_backup_directory(backup_directory: Path) -> Path:
-    """Choose a directory to extract files from."""
-    # TODO: check the logic around the `invalid` flag
+def get_user_backup_directory_selection(choices: Dict[int, Path]) -> str:
+    """Return the backup directory selected by the user"""
     invalid_inputs = 0
     invalid = False
-
-    choices = get_backup_choices(backup_directory)
-    max_choice = max(choices.keys())
+    max_choice = max(choices)
 
     while True:
         choice = input(
@@ -180,9 +205,11 @@ def choose_backup_directory(backup_directory: Path) -> Path:
             f"1--{max_choice}, or 'x' to exit:\n"
         )
 
+        # exit condition
         if choice.lower() == "x":
-            # TODO: is there a cleaner way to exit the script?
-            sys.exit()
+            exit_with_exit_code_and_message(
+                exit_code=1, msg="Got `x`. Exiting with exit code {exit_code}."
+            )
 
         try:
             choice = int(choice)
@@ -193,8 +220,10 @@ def choose_backup_directory(backup_directory: Path) -> Path:
             invalid = True
             choice = -1
 
+        # we've gotten a valid backup directory
         if 1 <= choice <= max_choice:
-            print(f"\nyou have chosen backup directory #{choice} ({choices[choice]})\n")
+            # TODO: update the info in brackets to give a human-readable name
+            print(f"\nYou've chosen backup directory #{choice} ({choices[choice]})")
             break
         else:
             # the choice is a number outside of the valid range
@@ -203,16 +232,23 @@ def choose_backup_directory(backup_directory: Path) -> Path:
                 invalid_inputs += 1
             invalid = False
 
-        # TODO: check if this is the most graceful way to exit
         if invalid_inputs >= 3:
-            print("Too many invalid inputs. Exiting.")
-            sys.exit(1)
+            exit_with_exit_code_and_message(
+                exit_code=2,
+                msg="Too many invalid inputs. Exiting with exit code {exit_code}.",
+            )
 
     return choices[choice]
 
 
-def get_backup_choices(directory: Path) -> Dict[int, Path]:
-    """get a list of choices for which iOS backup to examine."""
+def exit_with_exit_code_and_message(exit_code: int, msg: str):
+    """Exit the application with `exit_code`, first printing a message"""
+    print(msg.format(exit_code=exit_code))
+    sys.exit(exit_code)
+
+
+def get_backup_directories(directory: Path) -> Dict[int, Path]:
+    """Get available backup directories within `directory`"""
     # TODO: we can probably use a list here -- no point using a dict with integer keys
     choices: Dict[int, str] = {}
     counter = 1
@@ -249,7 +285,7 @@ def load_info_plist_from_directory(directory: Path) -> Dict[str, str]:
     return pl
 
 
-def get_backup_directory_info(directory: Path) -> None:
+def get_backup_directory_info(directory: Path, choice: int) -> None:
     """Print summary information about the backup directory"""
     pl = load_info_plist_from_directory(directory)
 
@@ -267,14 +303,14 @@ def get_backup_directory_info(directory: Path) -> None:
     product_name = pl["Product Name"]
     last_backup_date = pl["Last Backup Date"]
 
-    print(f"{device_name} [{product_name}] (iOS version: {product_version})")
+    print(f"{choice}: {device_name} [{product_name}] (iOS version: {product_version})")
     print(f" - Last backed up: {last_backup_date.astimezone(tz=timezone.utc)}")
     print()
 
 
-def get_backup_information(directory: Path) -> Dict[str, str]:
+def read_information_from_info_plist(directory: Path) -> Dict[str, str]:
     """Retrieve backup information from `Info.plist` file"""
-    pl = load_info_plist(directory)
+    pl = load_info_plist_from_directory(directory)
 
     # use a list rather than a set to preserve order
     keys = [
@@ -295,7 +331,7 @@ def get_backup_information(directory: Path) -> Dict[str, str]:
         "Product Version",  # iOS version
         "Serial Number",
         "Target Identifier",
-        "Unique Identifier",  # uuid
+        "Unique Identifier",  # UUID
     ]
 
     # use `.get` in case the key doesn"t exist in `pl`
