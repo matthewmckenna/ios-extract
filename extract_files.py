@@ -2,7 +2,7 @@
 """Extract specific files from an unencrypted iOS backup"""
 import argparse
 import configparser
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -11,7 +11,18 @@ from pathlib import Path
 import plistlib
 from pprint import pprint
 import sys
-from typing import Dict, Iterable, Union
+from typing import Dict, Iterable, Iterator, Union
+
+from cli_args import CommandLineArguments, parse_args
+
+
+def scantree(path: Path) -> Iterator[os.DirEntry[str]]:
+    """Recursively yield `DirEntry` objects for given directory"""
+    for entry in os.scandir(path):
+        if entry.is_dir():
+            yield from scantree(entry.path)
+        else:
+            yield entry
 
 
 def load_config(filename: str):
@@ -24,44 +35,61 @@ def load_config(filename: str):
 def get_platform_backup_location() -> Path:
     """Return the platform-specific iOS backup location"""
     if sys.platform == "win32":
-        return Path("~/AppData/Roaming/Apple Computer/MobileSync/Backup")
+        backup_location = Path("~/AppData/Roaming/Apple Computer/MobileSync/Backup")
     elif sys.platform == "darwin":
-        return Path("~/Library/Application Support/MobileSync/Backup")
+        backup_location = Path("~/Library/Application Support/MobileSync/Backup")
+    else:
+        raise RuntimeError(f"{sys.platform} is not yet supported. Exiting")
+    return backup_location.expanduser()
 
 
-def main(args):
-    """Main entry point for the utility"""
+def get_backup_location(config: Dict[str, str]) -> Path:
+    """Get the location of the iOS backups.
+
+    Attempt to get the iOS backup location from the configuration file.
+    If no backup location is specified, then fall-back to the default
+    platform backup location.
+    """
     # backups are stored in different locations on Windows and macOS
     # set the correct location for the platform
-    platform_backup_location = get_platform_backup_location()
+    if not config.get("backup_directory"):
+        return get_platform_backup_location()
+    else:
+        return Path(config.get("backup_directory")).expanduser()
 
+
+def get_backup_directory_interactive(backup_location: Path) -> Path:
+    directory_choice = choose_backup_directory(backup_location)
+    return backup_location / directory_choice
+
+
+def summarise_platform_backup_directories(backup_location: Path):
+    for entry in os.scandir(backup_location):
+        if entry.is_dir():
+            get_backup_directory_info(Path(entry.path))
+
+
+
+def main(args: CommandLineArguments):
+    """Main entry point for the utility"""
     # load user configuration settings
     cfg = load_config("ios.config")
 
+    # get the location of the iOS backups
+    backup_location = get_backup_location(cfg)
+
     # TODO: check for the valid cfg_keys
     device_uuid = cfg.get("uuid")
-
-    # try to get backup_dir from the config file
-    # use the default platform location otherwise
-    # TODO: can I clean up the creation of `backup_directory`?
-    if not cfg.get("backup_dir"):
-        backup_dir = platform_backup_loc
-    else:
-        backup_dir = cfg.get("backup_dir")
-    # create a Path object and expand the `~` if any
-    backup_dir = Path(backup_dir).expanduser()
 
     # two modes of operation here
     # 1. we specify a backup_directory in the config file
     # 2. we use the system location
 
-    # TODO: this is bad logic. fix this next
     if args.summarise:
-        directory_choice = choose_backup_directory(backup_dir)
-        backup_directory = backup_dir / directory_choice
-    else:
-        backup_directory = backup_dir / device_uuid
+        summarise_platform_backup_directories(backup_location)
+        return
 
+    sys.exit(1)
     # get a dict with information from `Info.plist`
     backup_info = get_backup_information(backup_directory)
 
@@ -137,12 +165,13 @@ def load_json(filepath: Union[str, Path]) -> Dict[str, str]:
     return data
 
 
-def choose_backup_directory(backup_dir: Path) -> Path:
-    """choose a backup directory to extract files from"""
+def choose_backup_directory(backup_directory: Path) -> Path:
+    """Choose a directory to extract files from."""
     # TODO: check the logic around the `invalid` flag
     invalid_inputs = 0
     invalid = False
-    choices = get_backup_choices(backup_dir)
+
+    choices = get_backup_choices(backup_directory)
     max_choice = max(choices.keys())
 
     while True:
@@ -158,7 +187,7 @@ def choose_backup_directory(backup_dir: Path) -> Path:
         try:
             choice = int(choice)
         except ValueError:
-            # anything other than a number or 'x' will increase the
+            # anything other than a number or "x" will increase the
             # `invalid_inputs` count & set the `invalid` flag
             invalid_inputs += 1
             invalid = True
@@ -168,7 +197,7 @@ def choose_backup_directory(backup_dir: Path) -> Path:
             print(f"\nyou have chosen backup directory #{choice} ({choices[choice]})\n")
             break
         else:
-            # if the number is outside of the valid range
+            # the choice is a number outside of the valid range
             # inside the conditional if `invalid` is False
             if not invalid:
                 invalid_inputs += 1
@@ -184,7 +213,8 @@ def choose_backup_directory(backup_dir: Path) -> Path:
 
 def get_backup_choices(directory: Path) -> Dict[int, Path]:
     """get a list of choices for which iOS backup to examine."""
-    choices = {}
+    # TODO: we can probably use a list here -- no point using a dict with integer keys
+    choices: Dict[int, str] = {}
     counter = 1
 
     with os.scandir(directory) as it:
@@ -192,7 +222,7 @@ def get_backup_choices(directory: Path) -> Dict[int, Path]:
             # only interested in directories
             if entry.is_dir():
                 try:
-                    get_summary_backup_info(directory / entry.name)
+                    choice = get_choice(directory / entry.name)
                 # TODO: am I handling this correctly?
                 except FileNotFoundError:
                     # no Info.plist file found
@@ -205,37 +235,46 @@ def get_backup_choices(directory: Path) -> Dict[int, Path]:
     return choices
 
 
-def get_summary_backup_info(directory: Path):
-    """print a summary of the backup directory"""
+def load_info_plist_from_directory(directory: Path) -> Dict[str, str]:
+    """Load an `Info.plist` file"""
     plist_filename = directory / "Info.plist"
 
-    # read the plist file
-    with open(plist_filename, "rb") as f:
-        pl = plistlib.load(f)
+    # open & read the plist file
+    try:
+        with open(plist_filename, "rb") as f:
+            pl = plistlib.load(f)
+    except FileNotFoundError as e:
+        print(f"No `Info.plist` file found in {directory}")
+
+    return pl
+
+
+def get_backup_directory_info(directory: Path) -> None:
+    """Print summary information about the backup directory"""
+    pl = load_info_plist_from_directory(directory)
 
     # basic information to display
     keys = [
         "Device Name",
         "Last Backup Date",
-        "Product Type",  # iPhone8,1
-        "Product Name",  # iPhone XR
-        "Product Version",  # iOS version
-        "Unique Identifier",
+        "Product Name",
+        "Product Version",
     ]
 
-    # create a dict with a reduced set of plist entries
-    info = {k: pl[k] for k in keys}
+    # create some shorthand variables
+    device_name = pl["Device Name"]
+    product_version = pl["Product Version"]
+    product_name = pl["Product Name"]
+    last_backup_date = pl["Last Backup Date"]
 
-    # print out some basic information
-    pprint(info)
+    print(f"{device_name} [{product_name}] (iOS version: {product_version})")
+    print(f" - Last backed up: {last_backup_date.astimezone(tz=timezone.utc)}")
+    print()
 
 
 def get_backup_information(directory: Path) -> Dict[str, str]:
-    """retrieve backup information from `Info.plist` file"""
-    plist_filename = directory / "Info.plist"
-
-    with open(plist_filename, "rb") as f:
-        pl = plistlib.load(f)
+    """Retrieve backup information from `Info.plist` file"""
+    pl = load_info_plist(directory)
 
     # use a list rather than a set to preserve order
     keys = [
@@ -259,50 +298,51 @@ def get_backup_information(directory: Path) -> Dict[str, str]:
         "Unique Identifier",  # uuid
     ]
 
-    # use `.get` in case the key doesn't exist in `pl`
+    # use `.get` in case the key doesn"t exist in `pl`
     return {k: pl.get(k) for k in keys}
 
 
 def write_backup_information(backup_info: Dict[str, str], directory: Path) -> None:
-    """write backup information to a file"""
+    """Write backup information to a text file."""
     filename = directory / "info.txt"
 
-    with open(filename, "w") as f:
+    with open(filename, "wt") as f:
         for k in backup_info:
             f.write(f"{k}: {backup_info[k]}\n")
 
 
 def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
-    """yield matching directory names in `directory`"""
-    # compile the directory name pattern
+    """Yield matching directory names in `directory`"""
+    # compile the directory name pattern as we"ll be using it multiple times
     dirname_pattern = re.compile(f"{pattern}")
 
     with os.scandir(directory) as it:
         for entry in it:
-            # only interested in directories
+            # we"re only interested in directories
             if not entry.is_dir():
                 continue
 
+            # if the directory name matches `pattern` then yield this directory
             if dirname_pattern.match(entry.name):
                 yield entry
 
 
 def remove_empty_dirs(directory: Path, pattern: str) -> None:
-    """remove empty directories within `directory` which match the regex `pattern`"""
+    """Remove empty directories within `directory` which match the regex `pattern`"""
     for d in get_empty_dirs(directory, pattern):
         print(f"DRY RUN: remove directory={d.name}")
         # os.rmdir(d.path)
 
 
 def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
-    """get empty directories within `directory`.
+    """Find empty directories within `directory`.
 
     Yields directories that match the regex `pattern` in `directory`.
 
     Args:
         directory: string the starting directory
-        pattern: string regex e.g., '\\d{8}_{6}' (double-escaped here)
-        would match the directory '20170719_161932'.
+        pattern: string regex e.g., "\\d{8}_{6}" (double-escaped here)
+        would match the directory "20170719_161932".
 
     Yields:
         os.DirEntry objects for empty directories which match `pattern`.
@@ -313,33 +353,11 @@ def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
             try:
                 next(it)
             except StopIteration:
-                # if there is nothing, then the directory is empty
+                # if we hit a StopIteration then there are no items in the directory, and the directory is empty
                 # yield this directory name
                 yield dir_entry
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Extract specific files from an unencrypted iOS backup",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default=Path.home() / "ios-backups",
-        help="output directory",
-        type=Path,
-    )
-    # TODO: change to copy files by default, add dry-run flag instead
-    parser.add_argument(
-        "-c", "--copy", help="copy the database files", action="store_true"
-    )
-    parser.add_argument(
-        "-s",
-        "--summarise",
-        help="summarise all backup directorys in given path",
-        action="store_true",
-    )
-
-    args = parser.parse_args()
+    args = parse_args()
     main(args)
