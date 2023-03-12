@@ -191,50 +191,51 @@ def main(args: CommandLineArguments):
         # write some information about the source of the backup
         backup_info.write_info_txt()
 
+    remove_empty_dirs(backup_info.output_directory.parent, pattern=r"^\d{8}_\d{6}$")
     sys.exit(99)
-    # TODO: move this to the end of the execution
-    remove_empty_dirs(base_output_dir, pattern=r"^\d{8}_\d{6}$")
 
 
-def locate_files_ios_gte_10(
-    backup_directory: Path, output_directory: Path, hashed_name: str, db_name: str
-) -> Path:
-    # NOTE: if iOS version < 10 then there are no folders, and
-    # all files are at the top level.
-    subdirectory_name = hashed_name[:2]
-    source = backup_directory / hashed_name[:2] / hashed_name
-    destination = output_directory / db_name
-    return source, destination
+def build_source_filename_pre_ios10(backup_directory: Path, hashed_name: str):
+    """Copy files of interest from the source backup directory to the desitination.
+
+    Prior to iOS 10 the backup databases were not organised by subdirectory,
+    and must be handled differently.
+    """
+    return backup_directory / hashed_name
 
 
-def copy_files_of_interets(backup_info: BackupInfo):
+def build_source_filename_post_ios10(backup_directory: Path, hashed_name: str):
+    """Copy files of interest from the source backup directory to the destination.
+
+    From iOS 10.0 onwards databases are organised in directories by the first
+    byte (two characters) of the hashes database name.
+    e.g., database `7c7fba66680ef796b916b067077cc246adacf01d`
+    is inside a directory named `7c`
+    """
+    return backup_directory / hashed_name[:2] / hashed_name
+
+
+def copy_files(backup_info: BackupInfo) -> None:
     """Copy files to a backup directory"""
     databases = load_json("databases.json")
 
-    # def locate_files_ios_gte_10()  # handle iOS >= 10.0
-    # def locate_files_ios_lte_9()  # handle iOS <= 9.0
     for db_name, hashed_name in databases.items():
         if backup_info.major_ios_version > 9:
-            # databases are organised in directories by
-            # the first byte (two characters) of the database
-            # e.g., database `7c7fba66680ef796b916b067077cc246adacf01d`
-            # is inside a directory named `7c`
-            subdir = hashed_name[:2]
-
-            # `backup_directory` is where we will copy from (source)
-            # `output_dir` is where we will copy to (destination)
-            folder = backup_directory / subdir
-            src_path = folder / hashed_name
-            dest_path = output_dir / db_name
-        else:
-            src_path = backup_directory / hashed_name
-            dest_path = output_dir / db_name
+            src = build_source_filename_post_ios10(
+                backup_info.backup_directory, hashed_name
+            )
+        elif backup_info.major_ios_version <= 9:
+            src = build_source_filename_pre_ios10(
+                backup_info.backup_directory, hashed_name
+            )
+        dst = backup_info.output_directory / db_name
 
         try:
-            shutil.copy2(src_path, dest_path)
+            shutil.copy2(src, dst)
         except FileNotFoundError:
             # the file doesn't exist
-            pass
+            print(f"Could not find source file: {src}")
+            continue
 
 
 def load_json(filepath: Union[str, Path]) -> Dict[str, str]:
@@ -367,12 +368,12 @@ def read_information_from_info_plist(directory: Path) -> Dict[str, str]:
 
 def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
     """Yield matching directory names in `directory`"""
-    # compile the directory name pattern as we"ll be using it multiple times
+    # compile the directory name pattern as we'll be using it multiple times
     dirname_pattern = re.compile(f"{pattern}")
 
     with os.scandir(directory) as it:
         for entry in it:
-            # we"re only interested in directories
+            # we're only interested in directories
             if not entry.is_dir():
                 continue
 
@@ -384,8 +385,9 @@ def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str
 def remove_empty_dirs(directory: Path, pattern: str) -> None:
     """Remove empty directories within `directory` which match the regex `pattern`"""
     for d in get_empty_dirs(directory, pattern):
-        print(f"DRY RUN: remove directory={d.name}")
-        # os.rmdir(d.path)
+        print(f"Removing empty directory {d.name}... ", end="")
+        Path(d.path).rmdir()
+        print("done.")
 
 
 def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
@@ -414,5 +416,4 @@ def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
 
 if __name__ == "__main__":
     args = parse_args()
-    print(args)
     main(args)
