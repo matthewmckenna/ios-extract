@@ -9,6 +9,7 @@ class CommandLineArguments:
     dry_run: bool
     summarise: bool
     output_directory: Path | None = None
+    version: bool = False
     write_info_txt: bool = False
 
     def __post_init__(self):
@@ -50,6 +51,12 @@ def parse_args() -> CommandLineArguments:
         action="store_true",
     )
     parser.add_argument(
+        "-v",
+        "--version",
+        help="print the version and exit",
+        action="store_true",
+    )
+    parser.add_argument(
         "-w",
         "--write-info-txt",
         help="write an info.txt file in the output directory",
@@ -60,5 +67,6 @@ def parse_args() -> CommandLineArguments:
         dry_run=args.dry_run,
         summarise=args.summarise,
         output_directory=args.output_directory,
+        version=args.version,
         write_info_txt=args.write_info_txt,
     )
