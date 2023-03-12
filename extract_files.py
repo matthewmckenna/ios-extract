@@ -182,6 +182,9 @@ def main(args: CommandLineArguments):
         # write some information about the source of the backup
         backup_info.write_info_txt()
 
+    if not args.dry_run:
+        print(f"Extract databases to {backup_info.output_directory}")
+        copy_files(backup_info)
     remove_empty_dirs(backup_info.output_directory.parent, pattern=r"^\d{8}_\d{6}$")
     sys.exit(99)
 
