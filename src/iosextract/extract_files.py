@@ -10,6 +10,8 @@ import plistlib
 import sys
 from typing import Dict, Iterable, Iterator, Union
 
+from rich import print
+
 from . import __version__
 from .cli_args import CommandLineArguments, parse_args
 from .dates_and_times import _datetime_to_ddmmmyyyy, _get_ymd_hms_timestamp
