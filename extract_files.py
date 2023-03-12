@@ -15,15 +15,6 @@ from dates_and_times import _datetime_to_ddmmmyyyy, _get_ymd_hms_timestamp
 from models import BackupInfo
 
 
-def scantree(path: Path) -> Iterator[os.DirEntry[str]]:
-    """Recursively yield `DirEntry` objects for given directory"""
-    for entry in os.scandir(path):
-        if entry.is_dir():
-            yield from scantree(entry.path)
-        else:
-            yield entry
-
-
 def _get_directory_names(directory: Path) -> Iterator[str]:
     """Yield directory names within `directory`"""
     for entry in os.scandir(directory):
@@ -80,7 +71,7 @@ def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Pa
     e.g,
     {
         1: PosixPath("/Users/user/Library/Application Support/MobileSync/Backup/46063E61-DC9F-40A2-888A-880FD5BA596A"),
-        2: PosixPath("/Users/user/Library/Application Support/MobileSync/Backup/8A8269F1-BFC9-4828-9831-9A1ECD484F8C")
+        2: PosixPath("/Users/user/Library/Application Support/MobileSync/Backup/8A8269F1-BFC9-4828-9831-9A1ECD484F8C"),
     }
     """
     return {
