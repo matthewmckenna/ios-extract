@@ -4,4 +4,8 @@ __pycache__/
 .DS_Store
 .python-version
 ios.config
+data/
+dist/
 logs/
+z_deprecated/
+*.egg-info/

@@ -89,10 +89,10 @@ def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Pa
 def summarise_platform_backup_directories(backup_location: Path):
     backup_directories = _build_backup_directory_options(backup_location)
     num_header_characters = 69
-    print(f"{' Backups Available ':=^{num_header_characters}}")
+    print(f"[bold blue]{' Backups Available ':=^{num_header_characters}}[/]")
     for choice, backup_directory in backup_directories.items():
         get_backup_directory_info(backup_directory, choice)
-    print(f"{'':=^{num_header_characters}}")
+    print(f"[bold blue]{'':=^{num_header_characters}}[/]")
 
 
 def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -> Path:
@@ -329,8 +329,12 @@ def get_backup_directory_info(directory: Path, choice: int) -> None:
     product_name = pl["Product Name"]
     last_backup_date = pl["Last Backup Date"]
 
-    print(f"{choice}: {device_name} [{product_name}] (iOS version: {product_version})")
-    print(f" - Last backed up: {_datetime_to_ddmmmyyyy(last_backup_date)}")
+    print(
+        f"{choice}: [bold yellow1]{device_name}[/] [white]\[[bold deep_pink2]{product_name}[/]] (iOS version: [bold green]{product_version}[/])"
+    )
+    print(
+        f" - [italic white]Last backed up: [bold dark_orange]{_datetime_to_ddmmmyyyy(last_backup_date)}[/]"
+    )
     print()
 
 
