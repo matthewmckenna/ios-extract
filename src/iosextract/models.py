@@ -1,10 +1,10 @@
 from __future__ import annotations
 from datetime import datetime
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 
-from dates_and_times import _datetime_to_str, _str_to_datetime
+from .dates_and_times import _datetime_to_str, _str_to_datetime
 
 DIRECTORY_FIELDS = ["backup_directory", "output_directory"]
 FIELD_MAPPING = {

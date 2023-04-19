@@ -10,9 +10,13 @@ import plistlib
 import sys
 from typing import Dict, Iterable, Iterator, Union
 
-from cli_args import CommandLineArguments, parse_args
-from dates_and_times import _datetime_to_ddmmmyyyy, _get_ymd_hms_timestamp
-from models import BackupInfo
+from rich import print
+
+from . import __version__
+from .cli_args import CommandLineArguments, parse_args
+from .dates_and_times import _datetime_to_ddmmmyyyy, _get_ymd_hms_timestamp
+from .log import setup_logging
+from .models import BackupInfo
 
 
 def _get_directory_names(directory: Path) -> Iterator[str]:
@@ -85,10 +89,10 @@ def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Pa
 def summarise_platform_backup_directories(backup_location: Path):
     backup_directories = _build_backup_directory_options(backup_location)
     num_header_characters = 69
-    print(f"{' Backups Available ':=^{num_header_characters}}")
+    print(f"[bold blue]{' Backups Available ':=^{num_header_characters}}[/]")
     for choice, backup_directory in backup_directories.items():
         get_backup_directory_info(backup_directory, choice)
-    print(f"{'':=^{num_header_characters}}")
+    print(f"[bold blue]{'':=^{num_header_characters}}[/]")
 
 
 def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -> Path:
@@ -183,7 +187,7 @@ def main(args: CommandLineArguments):
         backup_info.write_info_txt()
 
     if not args.dry_run:
-        print(f"Extract databases to {backup_info.output_directory}")
+        logger.info(f"Extract databases to {backup_info.output_directory}")
         copy_files(backup_info)
     remove_empty_dirs(backup_info.output_directory.parent, pattern=r"^\d{8}_\d{6}$")
     sys.exit(99)
@@ -211,7 +215,7 @@ def build_source_filename_post_ios10(backup_directory: Path, hashed_name: str):
 
 def copy_files(backup_info: BackupInfo) -> None:
     """Copy files to a backup directory"""
-    databases = load_json("databases.json")
+    databases = load_json("data/databases.json")
 
     for db_name, hashed_name in databases.items():
         if backup_info.major_ios_version > 9:
@@ -228,7 +232,7 @@ def copy_files(backup_info: BackupInfo) -> None:
             shutil.copy2(src, dst)
         except FileNotFoundError:
             # the file doesn't exist
-            print(f"Could not find source file: {src}")
+            logger.info(f"Couldn't find source file for {db_name!r} -- skipping")
             continue
 
 
@@ -302,7 +306,7 @@ def load_info_plist_from_directory(directory: Path) -> Dict[str, str]:
         with open(plist_filename, "rb") as f:
             pl = plistlib.load(f)
     except FileNotFoundError as e:
-        print(f"No `Info.plist` file found in {directory}")
+        logger.info(f"No `Info.plist` file found in {directory}")
 
     return pl
 
@@ -325,8 +329,12 @@ def get_backup_directory_info(directory: Path, choice: int) -> None:
     product_name = pl["Product Name"]
     last_backup_date = pl["Last Backup Date"]
 
-    print(f"{choice}: {device_name} [{product_name}] (iOS version: {product_version})")
-    print(f" - Last backed up: {_datetime_to_ddmmmyyyy(last_backup_date)}")
+    print(
+        f"{choice}: [bold yellow1]{device_name}[/] [white]\[[bold deep_pink2]{product_name}[/]] (iOS version: [bold green]{product_version}[/])"
+    )
+    print(
+        f" - [italic white]Last backed up: [bold dark_orange]{_datetime_to_ddmmmyyyy(last_backup_date)}[/]"
+    )
     print()
 
 
@@ -379,9 +387,9 @@ def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str
 def remove_empty_dirs(directory: Path, pattern: str) -> None:
     """Remove empty directories within `directory` which match the regex `pattern`"""
     for d in get_empty_dirs(directory, pattern):
-        print(f"Removing empty directory {d.name}... ", end="")
+        logger.info(f"Removing empty directory {d.name}... ", end="")
         Path(d.path).rmdir()
-        print("done.")
+        logger.info("done.")
 
 
 def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
@@ -409,5 +417,9 @@ def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
 
 
 if __name__ == "__main__":
+    logger = setup_logging()
     args = parse_args()
-    main(args)
+    if args.version:
+        print(__version__)
+    else:
+        main(args)

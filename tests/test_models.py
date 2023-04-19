@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from dates_and_times import _datetime_to_str, _str_to_datetime
-from models import BackupInfo, CustomJSONEncoder
+from iosextract.dates_and_times import _datetime_to_str, _str_to_datetime
+from iosextract.models import BackupInfo, CustomJSONEncoder
 
 
 @pytest.fixture
