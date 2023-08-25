@@ -69,6 +69,4 @@ def test_datetime_to_str():
 
 def test_str_to_datetime():
     dt_str = "2022-03-11 01:47:03"
-    assert _str_to_datetime(dt_str) == datetime(
-        2022, 3, 11, 1, 47, 3, tzinfo=timezone.utc
-    )
+    assert _str_to_datetime(dt_str) == datetime(2022, 3, 11, 1, 47, 3, tzinfo=timezone.utc)

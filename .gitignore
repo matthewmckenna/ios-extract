@@ -1,11 +1,22 @@
+# python artefacts
 __pycache__/
 .ipynb_checkpoints/
+
+# vscode config
 .vscode/
+
+# folder attributes file
 .DS_Store
-.python-version
+
+# config file
 ios.config
+
+# project files
 data/
-dist/
+# dist/
 logs/
 z_deprecated/
+
+# virtual environment and build artefacts
 *.egg-info/
+.venv/

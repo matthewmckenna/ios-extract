@@ -2,6 +2,7 @@
 """Extract specific files from an unencrypted iOS backup"""
 import configparser
 import json
+import logging
 import os
 import re
 import shutil
@@ -59,10 +60,12 @@ def get_backup_location(config: Dict[str, str]) -> Path:
         return Path(config.get("backup_directory")).expanduser()
 
 
-def get_backup_directory_interactive(backup_location: Path) -> Path:
+def get_backup_directory_interactive(
+    backup_location: Path, logger: logging.Logger
+) -> Path:
     """Choose a directory to extract files from."""
     choices = _build_backup_directory_options(backup_location)
-    summarise_platform_backup_directories(backup_location)
+    summarise_platform_backup_directories(backup_location, logger)
     return get_user_backup_directory_selection(choices)
 
 
@@ -86,16 +89,20 @@ def _build_backup_directory_options(base_backup_directory: Path) -> Dict[str, Pa
     }
 
 
-def summarise_platform_backup_directories(backup_location: Path):
+def summarise_platform_backup_directories(
+    backup_location: Path, logger: logging.Logger
+):
     backup_directories = _build_backup_directory_options(backup_location)
     num_header_characters = 69
     print(f"[bold blue]{' Backups Available ':=^{num_header_characters}}[/]")
     for choice, backup_directory in backup_directories.items():
-        get_backup_directory_info(backup_directory, choice)
+        get_backup_directory_info(backup_directory, choice, logger)
     print(f"[bold blue]{'':=^{num_header_characters}}[/]")
 
 
-def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -> Path:
+def get_target_backup_directory(
+    backup_location: Path, config: Dict[str, str], logger: logging.Logger
+) -> Path:
     """Get the target backup directory to extract database files from.
 
     Check the config file for a UUID set there.
@@ -113,7 +120,7 @@ def get_target_backup_directory(backup_location: Path, config: Dict[str, str]) -
     """
     device_uuid = config.get("uuid")
     if device_uuid is None:
-        return get_backup_directory_interactive(backup_location)
+        return get_backup_directory_interactive(backup_location, logger)
     return backup_location / device_uuid
 
 
@@ -125,7 +132,7 @@ def ensure_path(path: Path | str) -> Path:
 
 
 def get_backup_info(
-    backup_location: Path, args: CommandLineArguments, cfg
+    backup_location: Path, args: CommandLineArguments, cfg, logger: logging.Logger
 ) -> BackupInfo:
     """Get a BackupInfo instance with information about the selected backup.
 
@@ -139,8 +146,8 @@ def get_backup_info(
     -------
     BackupInfo instance
     """
-    target_backup_directory = get_target_backup_directory(backup_location, cfg)
-    plist_backup_info = read_information_from_info_plist(target_backup_directory)
+    target_backup_directory = get_target_backup_directory(backup_location, cfg, logger)
+    plist_backup_info = read_information_from_info_plist(target_backup_directory, logger)
     output_directory = get_output_directory(args, cfg)
     return BackupInfo.from_dict(
         dict(
@@ -164,7 +171,7 @@ def get_output_directory(args: CommandLineArguments, cfg: Dict[str, str]) -> Pat
     )
 
 
-def main(args: CommandLineArguments):
+def main(args: CommandLineArguments, logger: logging.Logger):
     """Main entry point for the utility"""
     # load user configuration settings
     cfg = load_config("ios.config")
@@ -178,19 +185,20 @@ def main(args: CommandLineArguments):
 
     # TODO: this could be extracted as a sub-command
     if args.summarise:
-        summarise_platform_backup_directories(backup_location)
+        summarise_platform_backup_directories(backup_location, logger)
         return
 
-    backup_info = get_backup_info(backup_location, args, cfg)
+    backup_info = get_backup_info(backup_location, args, cfg, logger)
     if args.write_info_txt:
         # write some information about the source of the backup
         backup_info.write_info_txt()
 
     if not args.dry_run:
         logger.info(f"Extract databases to {backup_info.output_directory}")
-        copy_files(backup_info)
-    remove_empty_dirs(backup_info.output_directory.parent, pattern=r"^\d{8}_\d{6}$")
-    sys.exit(99)
+        copy_files(backup_info, logger)
+    remove_empty_dirs(
+        backup_info.output_directory.parent, pattern=r"^\d{8}_\d{6}$", logger=logger
+    )
 
 
 def build_source_filename_pre_ios10(backup_directory: Path, hashed_name: str):
@@ -213,7 +221,7 @@ def build_source_filename_post_ios10(backup_directory: Path, hashed_name: str):
     return backup_directory / hashed_name[:2] / hashed_name
 
 
-def copy_files(backup_info: BackupInfo) -> None:
+def copy_files(backup_info: BackupInfo, logger: logging.Logger) -> None:
     """Copy files to a backup directory"""
     databases = load_json("data/databases.json")
 
@@ -297,7 +305,9 @@ def exit_with_exit_code_and_message(exit_code: int, msg: str):
     sys.exit(exit_code)
 
 
-def load_info_plist_from_directory(directory: Path) -> Dict[str, str]:
+def load_info_plist_from_directory(
+    directory: Path, logger: logging.Logger
+) -> Dict[str, str]:
     """Load an `Info.plist` file"""
     plist_filename = directory / "Info.plist"
 
@@ -311,9 +321,11 @@ def load_info_plist_from_directory(directory: Path) -> Dict[str, str]:
     return pl
 
 
-def get_backup_directory_info(directory: Path, choice: int) -> None:
+def get_backup_directory_info(
+    directory: Path, choice: int, logger: logging.Logger
+) -> None:
     """Print summary information about the backup directory"""
-    pl = load_info_plist_from_directory(directory)
+    pl = load_info_plist_from_directory(directory, logger)
 
     # basic information to display
     keys = [
@@ -327,6 +339,7 @@ def get_backup_directory_info(directory: Path, choice: int) -> None:
     device_name = pl["Device Name"]
     product_version = pl["Product Version"]
     product_name = pl["Product Name"]
+    # TODO: check the type of `last_backup_date` and convert to a datetime
     last_backup_date = pl["Last Backup Date"]
 
     print(
@@ -338,9 +351,9 @@ def get_backup_directory_info(directory: Path, choice: int) -> None:
     print()
 
 
-def read_information_from_info_plist(directory: Path) -> Dict[str, str]:
+def read_information_from_info_plist(directory: Path, logger: logging.Logger) -> Dict[str, str]:
     """Retrieve backup information from `Info.plist` file"""
-    pl = load_info_plist_from_directory(directory)
+    pl = load_info_plist_from_directory(directory, logger)
 
     # use a list rather than a set to preserve order
     keys = [
@@ -384,12 +397,11 @@ def get_matching_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str
                 yield entry
 
 
-def remove_empty_dirs(directory: Path, pattern: str) -> None:
+def remove_empty_dirs(directory: Path, pattern: str, logger: logging.Logger) -> None:
     """Remove empty directories within `directory` which match the regex `pattern`"""
     for d in get_empty_dirs(directory, pattern):
-        logger.info(f"Removing empty directory {d.name}... ", end="")
+        logger.info(f"Removing empty directory {d.name}")
         Path(d.path).rmdir()
-        logger.info("done.")
 
 
 def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
@@ -416,10 +428,14 @@ def get_empty_dirs(directory: Path, pattern: str) -> Iterable[os.DirEntry[str]]:
                 yield dir_entry
 
 
-if __name__ == "__main__":
+def iostoolbox():
     logger = setup_logging()
     args = parse_args()
     if args.version:
         print(__version__)
     else:
-        main(args)
+        main(args, logger)
+
+
+if __name__ == "__main__":
+    iostoolbox()
