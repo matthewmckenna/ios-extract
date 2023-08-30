@@ -7,7 +7,7 @@ SHELL := bash
 MAKEFLAGS += --warn-undefined-variables
 MAKEFLAGS += --no-builtin-rules
 
-SRC_PYTHON := /Users/matthew/.pyenv/versions/3.12.0a7/bin/python
+SRC_PYTHON := /Users/matthew/.pyenv/versions/3.12.0rc1/bin/python
 PIP_COMPILE := /Users/matthew/.local/bin/pip-compile --resolver backtracking --generate-hashes
 
 PROJECT_NAME := iostoolbox

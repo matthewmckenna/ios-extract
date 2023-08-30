@@ -16,15 +16,18 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: macOS",
 ]
-dependencies = ["pyyaml", "rich"]
+dependencies = ["pyyaml", "rich", "click"]
+
+[tool.setuptools]
+packages = ["iostoolbox"]
 
 [project.optional-dependencies]
 dev = ["coverage", "pytest", "pytest-cov"]
 
 [project.scripts]
-iostoolbox = "iosextract.extract_files:iostoolbox"
+# iostoolbox = "iosextract.extract_files:iostoolbox"
 # this is what we want the command to be invoke as
-# iostoolbox = "iostoolbox.cli:cli"
+iostoolbox = "iostoolbox.cli:cli"
 
 [tool.black]
 line-length = 100
